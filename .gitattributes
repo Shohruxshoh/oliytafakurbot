@@ -1,0 +1,3 @@
+# Hamma matnli fayllar LF bilan saqlanadi — loyiha Linux serverda ishlaydi,
+# Windows CRLF esa bash skriptlarni buzadi.
+* text=auto eol=lf

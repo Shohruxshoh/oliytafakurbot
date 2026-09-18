@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-olimpiada}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env faylda POSTGRES_PASSWORD ko-rsatilishi shart}
+      POSTGRES_DB: ${POSTGRES_DB:-olimpiada}
+      TZ: Asia/Tashkent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-olimpiada} -d ${POSTGRES_DB:-olimpiada}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # .env dagi DATABASE_URL ni bekor qiladi — konteynerda har doim PostgreSQL
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-olimpiada}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olimpiada}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Har 24 soatda bazaning zaxira nusxasi -> ./backups/ (14 kundan eskilari o'chiriladi).
+  # Ishga tushganda darhol bitta nusxa oladi.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-olimpiada}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-olimpiada}
+      SAQLASH_KUNI: "14"
+      TZ: Asia/Tashkent
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -o pipefail
+        while true; do
+          fayl="/backups/olimpiada_$$(date +%Y-%m-%d_%H%M).sql.gz"
+          if pg_dump --clean --if-exists --no-owner | gzip > "$$fayl.tmp"; then
+            mv "$$fayl.tmp" "$$fayl"
+            echo "zaxira olindi: $$fayl"
+          else
+            rm -f "$$fayl.tmp"
+            echo "XATO: zaxira olinmadi"
+          fi
+          find /backups -name 'olimpiada_*.sql.gz' -mtime +$$SAQLASH_KUNI -delete
+          sleep 86400
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
+
+volumes:
+  pgdata:
