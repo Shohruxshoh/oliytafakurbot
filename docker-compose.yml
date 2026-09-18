@@ -1,3 +1,15 @@
+# Serverdagi boshqa loyihalarga xalaqit bermasligi uchun:
+#   - loyiha nomi aniq: konteyner/tarmoq/volume nomlari "oliytafakkurbot" bilan boshlanadi
+#   - hech qanday port tashqariga ochilmaydi (bot polling ishlatadi, baza faqat ichki tarmoqda)
+#   - har bir servisga xotira chegarasi va log hajmi chegarasi qo'yilgan
+name: oliytafakkurbot
+
+x-log: &log
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:16-alpine
@@ -14,6 +26,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    mem_limit: 512m
+    logging: *log
 
   bot:
     build: .
@@ -25,11 +39,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    mem_limit: 256m
+    logging: *log
 
   # Har 24 soatda bazaning zaxira nusxasi -> ./backups/ (14 kundan eskilari o'chiriladi).
   # Ishga tushganda darhol bitta nusxa oladi.
@@ -64,11 +75,8 @@ services:
           find /backups -name 'olimpiada_*.sql.gz' -mtime +$$SAQLASH_KUNI -delete
           sleep 86400
         done
-    logging:
-      driver: json-file
-      options:
-        max-size: "1m"
-        max-file: "2"
+    mem_limit: 128m
+    logging: *log
 
 volumes:
   pgdata:
