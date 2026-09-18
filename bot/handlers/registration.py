@@ -15,11 +15,11 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import texts as t
-from bot.callbacks import AdmCB, FanCB, NavCB, SinfCB, TahrirCB
+from bot.callbacks import FanCB, NavCB, SinfCB, TahrirCB
 from bot.config import Config
 from bot.db.models import Ariza, Fan, User
 from bot.keyboards import common as kb
@@ -28,7 +28,6 @@ from bot.services import arizalar as ariza_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from bot.states import Reg
-from bot.utils.notify import adminlarga
 from bot.utils.validators import normalize_ism, normalize_maktab, normalize_telefon
 from bot.utils.yakunlash import yakuniy_malumot
 
@@ -449,21 +448,8 @@ async def tasdiqlash(
     )
     # Admin kiritgan qo'shimcha matn va manzil (agar kiritilgan bo'lsa)
     await yakuniy_malumot(bot, session, user.chat_id)
-
-    await adminlarga(
-        bot,
-        config,
-        session,
-        (
-            "🆕 <b>Yangi ro'yxatdan o'tish</b>\n\n"
-            f"👤 {_esc(user.fish)}\n"
-            f"📱 {_esc(user.telefon)}\n"
-            f"🏫 {_esc(user.maktab)}\n"
-            f"🎓 {user.sinf}-sinf\n"
-            f"📚 {_esc(', '.join(a.fan.nomi for a in yangi_arizalar))}"
-        ),
-        reply_markup=_admin_tasdiq_kb(user.id),
-    )
+    # Adminlarga har bir ro'yxatdan o'tish haqida xabar yuborilmaydi —
+    # ular kuniga bir marta hisobot oladi (bot/services/hisobot.py)
 
 
 def _yakuniy_xabar(user: User, arizalar: list[Ariza]) -> str:
@@ -480,23 +466,6 @@ def _yakuniy_xabar(user: User, arizalar: list[Ariza]) -> str:
         f"🎓 <b>Sinf:</b> {user.sinf}-sinf\n\n"
         f"📚 <b>Arizalaringiz:</b>\n{qatorlar}\n\n"
         f"{t.RO_YXATDAN_OTDI_IZOH}"
-    )
-
-
-def _admin_tasdiq_kb(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Tasdiqlash",
-                    callback_data=AdmCB(action="tasdiq_user", value=user_id).pack(),
-                ),
-                InlineKeyboardButton(
-                    text="❌ Rad etish",
-                    callback_data=AdmCB(action="rad_user", value=user_id).pack(),
-                ),
-            ]
-        ]
     )
 
 

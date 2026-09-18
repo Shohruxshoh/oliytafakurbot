@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.models import Ariza, Fan, HOLAT_NOMI, Holat, User
+from bot.db.models import HOLAT_NOMI, QATNASHUVCHI_HOLATLAR, Ariza, Fan, Holat, User
 from bot.utils.vaqt import mahalliy
 
 SARLAVHALAR = [
@@ -49,9 +49,11 @@ async def arizalar_excel(
         select(Ariza, User, Fan)
         .join(User, Ariza.user_id == User.id)
         .join(Fan, Ariza.fan_id == Fan.id)
-        .where(Ariza.holat != Holat.BEKOR_QILINGAN)
         .order_by(Fan.tartib, User.sinf, User.familiya)
     )
+    # Holat berilmasa — faqat qatnashuvchilar (rad etilgan va bekor qilinganlar kirmaydi)
+    if holat is None:
+        sorov = sorov.where(Ariza.holat.in_(QATNASHUVCHI_HOLATLAR))
     if boshlanish is not None:
         sorov = sorov.where(Ariza.created_at >= boshlanish)
     if tugash is not None:

@@ -7,10 +7,10 @@ Ro'yxatdan chiqarilgan fan bazadan O'CHIRILMAYDI, balki yashiriladi
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bot.db.models import Fan, Sozlama
+from bot.db.models import Ariza, Fan, Holat, Sozlama
 
 # (kod, nomi) — kod ariza raqamida ishlatiladi: OT26-MAT-00001
 FANLAR: list[tuple[str, str]] = [
@@ -51,5 +51,13 @@ async def seed(session_factory: async_sessionmaker[AsyncSession]) -> None:
         for kalit, qiymat in SOZLAMALAR.items():
             if kalit not in mavjud_kalitlar:
                 session.add(Sozlama(kalit=kalit, qiymat=qiymat))
+
+        # Arizalar avtomatik qabul qilinadi. Bu qoidadan oldin ochilib, admin
+        # tasdig'ini kutib qolgan arizalar ham qabul qilinadi.
+        await session.execute(
+            update(Ariza)
+            .where(Ariza.holat == Holat.YANGI)
+            .values(holat=Holat.TASDIQLANGAN)
+        )
 
         await session.commit()

@@ -39,10 +39,14 @@ class Holat(str, enum.Enum):
 
 HOLAT_NOMI: dict[Holat, str] = {
     Holat.YANGI: "🕐 Ko'rib chiqilmoqda",
-    Holat.TASDIQLANGAN: "✅ Tasdiqlangan",
+    Holat.TASDIQLANGAN: "✅ Qabul qilindi",
     Holat.RAD_ETILGAN: "❌ Rad etilgan",
     Holat.BEKOR_QILINGAN: "🚫 Bekor qilingan",
 }
+
+# Olimpiadada qatnashadigan arizalar: statistika, Excel va hisobotda faqat shular sanaladi.
+# Arizalar avtomatik qabul qilinadi (TASDIQLANGAN). YANGI — avto-qabuldan oldingi eski yozuvlar.
+QATNASHUVCHI_HOLATLAR: tuple[Holat, ...] = (Holat.TASDIQLANGAN, Holat.YANGI)
 
 
 class AdminRol(str, enum.Enum):

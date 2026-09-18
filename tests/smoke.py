@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -26,7 +26,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import load_config
 from bot.db.base import create_engine, create_session_factory, init_db
-from bot.db.models import AdminHolat, AdminRol, Holat
+from bot.db.models import AdminHolat, AdminRol, Ariza, Holat
 from bot.db.seed import seed
 from bot.handlers import admin, menu, registration
 from bot.keyboards import admin as akb
@@ -35,6 +35,7 @@ from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.throttling import ThrottlingMiddleware
 from bot.services import adminlar as admin_service
 from bot.services import arizalar as ariza_service
+from bot.services import hisobot
 from bot.services import stats as stats_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
@@ -102,6 +103,10 @@ async def main() -> None:
         arizalar = await ariza_service.ariza_yaratish(session, user, [mat.id, ing.id])
         tekshir(len(arizalar) == 2, "2 ta ariza yaratildi")
         tekshir(
+            all(a.holat == Holat.TASDIQLANGAN for a in arizalar),
+            "arizalar avtomatik qabul qilindi (admin tasdig'isiz)",
+        )
+        tekshir(
             all(a.ariza_raqami and a.ariza_raqami.startswith("OT") for a in arizalar),
             f"ariza raqamlari: {[a.ariza_raqami for a in arizalar]}",
         )
@@ -119,7 +124,10 @@ async def main() -> None:
             "bekor qilingan ariza ro'yxatda ko'rinmaydi",
         )
         qayta = await ariza_service.ariza_yaratish(session, user, [mat.id])
-        tekshir(len(qayta) == 1 and qayta[0].holat == Holat.YANGI, "bekor qilingan ariza tiklandi")
+        tekshir(
+            len(qayta) == 1 and qayta[0].holat == Holat.TASDIQLANGAN,
+            "bekor qilingan ariza qayta ochilganda darhol qabul qilindi",
+        )
 
         begona = await ariza_service.ariza_bekor_qilish(session, arizalar[1].id, user_id=999)
         tekshir(begona is None, "begona arizani bekor qilib bo'lmaydi")
@@ -175,7 +183,94 @@ async def main() -> None:
         _, otgan = await arizalar_excel(session, tugash=vaqt.kun_boshi())
         tekshir(otgan == 0, "bugundan oldingi davr bo'sh")
 
-    print("\n[7] Adminlar va rollar")
+    print("\n[7] Rad etilganlar statistika va Excel'ga kirmaydi")
+    async with session_factory() as session:
+        soxta_user = await user_service.create_user(
+            session,
+            telegram_id=556,
+            chat_id=556,
+            username=None,
+            manba=None,
+            familiya="Soxtaov",
+            ism="Soxta",
+            sharif="Soxtaovich",
+            telefon="+998901112233",
+            maktab="1-maktab",
+            sinf=3,
+        )
+        soxta = await ariza_service.ariza_yaratish(session, soxta_user, [mat.id])
+        await session.commit()
+        tekshir(
+            (await stats_service.qisqacha(session))["hammasi"] == (2, 3),
+            "rad etishdan oldin: 2 o'quvchi / 3 ariza",
+        )
+
+        soxta[0].holat = Holat.RAD_ETILGAN
+        await session.commit()
+        tekshir(
+            (await stats_service.qisqacha(session))["hammasi"] == (1, 2),
+            "rad etilgan o'quvchi ham, arizasi ham sanalmaydi",
+        )
+        tekshir(
+            dict(await stats_service.fanlar_boyicha(session)).get(mat.nomi) == 1,
+            "fanlar kesimida ham sanalmaydi",
+        )
+        tekshir(
+            await stats_service.sinflar_boyicha(session) == [(5, 1)],
+            "sinflar kesimida ham sanalmaydi",
+        )
+        tekshir(
+            sum(s for _, s in await stats_service.kunlar_boyicha(session)) == 1,
+            "kunlik jadvalda ham sanalmaydi",
+        )
+        _, soni = await arizalar_excel(session)
+        tekshir(soni == 2, f"Excel'ga tushmaydi ({soni} qator)")
+        _, rad_soni = await arizalar_excel(session, holat=Holat.RAD_ETILGAN)
+        tekshir(rad_soni == 1, "kerak bo'lsa rad etilganlarni alohida olish mumkin")
+
+    print("\n[8] Kunlik hisobot")
+    async with session_factory() as session:
+        matn = await hisobot.hisobot_matni(session)
+        tekshir("Kunlik hisobot" in matn, "hisobot sarlavhasi")
+        tekshir(
+            "Bugun ro'yxatdan o'tdi: <b>1</b> o'quvchi" in matn,
+            "bugungi o'quvchilar (rad etilgan sanalmadi)",
+        )
+        tekshir(f"{mat.nomi}: 1" in matn and f"{ing.nomi}: 1" in matn, "fanlar kesimi")
+        tekshir("Jami: <b>1</b> o'quvchi / 2 ariza" in matn, "jami")
+        kecha = await hisobot.hisobot_matni(session, vaqt.hozir().date() - timedelta(days=1))
+        tekshir("yangi ro'yxatdan o'tganlar yo'q" in kecha, "bo'sh kun uchun alohida matn")
+
+    def soat(s: int, d: int = 0) -> datetime:
+        return datetime(2026, 9, 18, s, d, tzinfo=vaqt.TOSHKENT)
+
+    tekshir(hisobot.keyingi_hisobotgacha(soat(19)) == 3600, "19:00 da — 1 soatdan keyin")
+    tekshir(
+        hisobot.keyingi_hisobotgacha(soat(20)) == 86400,
+        "xuddi 20:00 da — keyingisi ertaga (bir kunda ikki marta yubormaydi)",
+    )
+    tekshir(hisobot.keyingi_hisobotgacha(soat(21, 30)) == 81000, "21:30 da — 22.5 soatdan keyin")
+
+    async with session_factory() as session:
+        tekshir(await sozlama_service.kunlik_hisobot_yoqilganmi(session), "sukut bo'yicha yoqilgan")
+        tekshir(not await sozlama_service.kunlik_hisobotni_almashtirish(session), "o'chirildi")
+        tekshir(await sozlama_service.kunlik_hisobotni_almashtirish(session), "qayta yoqildi")
+        await session.commit()
+
+    print("\n[9] Eski 'ko'rib chiqilmoqda' arizalar avtomatik qabul qilinadi")
+    async with session_factory() as session:
+        eski = (await ariza_service.user_arizalari(session, user.id))[0]
+        eski.holat = Holat.YANGI
+        await session.commit()
+        eski_id = eski.id
+    await seed(session_factory)  # bot qayta ishga tushganda bajariladi
+    async with session_factory() as session:
+        tekshir(
+            (await session.get(Ariza, eski_id)).holat == Holat.TASDIQLANGAN,
+            "qayta ishga tushganda eski ariza qabul qilindi",
+        )
+
+    print("\n[10] Adminlar va rollar")
     async with session_factory() as session:
         admin_service.keshni_tozalash()
         tekshir(await admin_service.admin_mi(session, config, 111), ".env admin — admin")
@@ -216,7 +311,7 @@ async def main() -> None:
             "super admin to'g'ridan-to'g'ri qo'shdi",
         )
 
-    print("\n[8] Klaviaturalar")
+    print("\n[11] Klaviaturalar")
     tekshir(kb.SINFLAR == (3, 4, 5, 6, 7), f"sinflar 3-7: {kb.SINFLAR}")
     tekshir(len(kb.sinf_kb().inline_keyboard) == 3, "sinf klaviaturasi 3+2+orqaga")
     tekshir(
@@ -242,9 +337,20 @@ async def main() -> None:
     tekshir(len(akb.stat_kb().inline_keyboard) == 2, "statistika klaviaturasi")
     tekshir(len(akb.eksport_kb().inline_keyboard) == 3, "eksport klaviaturasi")
     tekshir(len(akb.davr_kb("kun").inline_keyboard) == 3, "davr klaviaturasi")
-    tekshir(len(akb.sozlamalar_kb().inline_keyboard) == 3, "sozlamalar klaviaturasi")
+    sozlama_kb = akb.sozlamalar_kb(hisobot_yoqilgan=True)
+    tekshir(len(sozlama_kb.inline_keyboard) == 4, "sozlamalar klaviaturasi")
+    tekshir("✅" in sozlama_kb.inline_keyboard[2][0].text, "kunlik hisobot holati tugmada")
+    tekshir(
+        akb.user_amal_kb(1, rad_etish=False, qayta_qabul=False) is None,
+        "amal yo'q — tugma ham yo'q",
+    )
+    ikkalasi = akb.user_amal_kb(1, rad_etish=True, qayta_qabul=True)
+    tekshir(
+        ikkalasi is not None and len(ikkalasi.inline_keyboard[0]) == 2,
+        "rad etish va qayta qabul tugmalari",
+    )
 
-    print("\n[9] Dispatcher va handlerlar")
+    print("\n[12] Dispatcher va handlerlar")
     tekshir(config.admin_ids == (111, 222), "ADMIN_IDS o'qildi")
     tekshir(config.is_admin(111) and not config.is_admin(333), "is_admin ishlaydi")
 

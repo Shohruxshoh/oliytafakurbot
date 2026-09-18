@@ -20,7 +20,6 @@ from bot.services import arizalar as ariza_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from bot.states import Tahrir, YangiFan
-from bot.utils.notify import adminlarga
 from bot.utils.validators import normalize_ism, normalize_maktab, normalize_telefon
 from bot.utils.yakunlash import yakuniy_malumot
 
@@ -178,7 +177,6 @@ async def yangi_fan_tasdiq(
     callback: CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
-    config: Config,
     bot: Bot,
 ) -> None:
     data = await state.get_data()
@@ -204,19 +202,9 @@ async def yangi_fan_tasdiq(
     if xabar is not None:
         await xabar.edit_text(f"{t.FAN_QOSHILDI}\n\n{qatorlar}")
 
-    # Admin kiritgan qo'shimcha matn va manzil
+    # Admin kiritgan qo'shimcha matn va manzil. Adminlarga alohida xabar yo'q —
+    # yangi arizalar kunlik hisobotda ko'rinadi.
     await yakuniy_malumot(bot, session, user.chat_id)
-
-    await adminlarga(
-        bot,
-        config,
-        session,
-        (
-            "➕ <b>Yangi fan qo'shildi</b>\n\n"
-            f"👤 {_esc(user.fish)} — {user.sinf}-sinf\n"
-            f"📚 {_esc(', '.join(a.fan.nomi for a in yangi))}"
-        ),
-    )
 
 
 # ---------------------------------------------------------------- tahrirlash

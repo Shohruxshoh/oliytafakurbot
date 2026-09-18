@@ -19,6 +19,7 @@ from bot.db.seed import seed
 from bot.handlers import admin, menu, registration
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.throttling import ThrottlingMiddleware
+from bot.services.hisobot import hisobot_tsikli
 
 # Windows konsoli sukut bo'yicha cp1251 — o'zbekcha harflar va emoji xato beradi
 for oqim in (sys.stdout, sys.stderr):
@@ -55,6 +56,7 @@ async def main() -> None:
     dp.include_router(admin.sorov_router)
     dp.include_router(menu.router)
 
+    hisobot_vazifasi: asyncio.Task | None = None
     try:
         me = await bot.get_me()
         logger.info(
@@ -70,6 +72,11 @@ async def main() -> None:
             ]
         )
         await bot.delete_webhook(drop_pending_updates=True)
+
+        # Adminlarga har kuni soat 20:00 da hisobot (Sozlamalar'dan o'chirish mumkin)
+        hisobot_vazifasi = asyncio.create_task(
+            hisobot_tsikli(bot, config, session_factory), name="kunlik_hisobot"
+        )
         await dp.start_polling(bot)
     except TelegramUnauthorizedError:
         logger.error(
@@ -77,6 +84,8 @@ async def main() -> None:
             ".env faylni tekshiring (token @BotFather dan olinadi)."
         )
     finally:
+        if hisobot_vazifasi is not None:
+            hisobot_vazifasi.cancel()
         await bot.session.close()
         await engine.dispose()
 

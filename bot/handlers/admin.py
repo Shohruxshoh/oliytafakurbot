@@ -22,7 +22,13 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import BaseFilter, Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message, TelegramObject
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    Message,
+    TelegramObject,
+)
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,9 +41,9 @@ from bot.db.models import (
     Admin,
     AdminHolat,
     AdminRol,
-    Ariza,
-    Fan,
     HOLAT_NOMI,
+    QATNASHUVCHI_HOLATLAR,
+    Ariza,
     Holat,
     User,
 )
@@ -46,8 +52,8 @@ from bot.services import adminlar as admin_service
 from bot.services import arizalar as ariza_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import stats as stats_service
-from bot.services import users as user_service
 from bot.services.export import arizalar_excel
+from bot.services.hisobot import HISOBOT_SOATI, hisobot_matni
 from bot.states import AdminSt
 from bot.utils import vaqt
 from bot.utils.yakunlash import manzilni_yuborish
@@ -58,6 +64,7 @@ router = Router(name="admin")
 sorov_router = Router(name="admin_sorov")
 
 YUBORISH_ORALIGI = 0.05  # sekund — sekundiga ~20 ta xabar
+OXIRGI_ARIZALAR_SONI = 10
 EKSPORT_TURLARI = {"eks_kun": "kun", "eks_hafta": "hafta", "eks_oy": "oy", "eks_hammasi": "hammasi"}
 
 
@@ -178,25 +185,15 @@ async def statistika(callback: CallbackQuery, session: AsyncSession) -> None:
 
     davrlar = await stats_service.qisqacha(session)
 
+    # Holatlar — barchasi (rad etilgan va bekor qilinganlar ham ko'rinsin).
+    # Qolgan sanoqlar — faqat qatnashuvchilar.
     holatlar = (
         await session.execute(
             select(Ariza.holat, func.count(Ariza.id)).group_by(Ariza.holat)
         )
     ).all()
-    fanlar = (
-        await session.execute(
-            select(Fan.nomi, func.count(Ariza.id))
-            .join(Ariza, Ariza.fan_id == Fan.id)
-            .where(Ariza.holat != Holat.BEKOR_QILINGAN)
-            .group_by(Fan.nomi)
-            .order_by(func.count(Ariza.id).desc())
-        )
-    ).all()
-    sinflar = (
-        await session.execute(
-            select(User.sinf, func.count(User.id)).group_by(User.sinf).order_by(User.sinf)
-        )
-    ).all()
+    fanlar = await stats_service.fanlar_boyicha(session)
+    sinflar = await stats_service.sinflar_boyicha(session)
 
     belgilar = {"kun": "📅 Bugun", "hafta": "📆 Shu hafta", "oy": "🗓 Shu oy", "hammasi": "📦 Jami"}
     qismlar = ["📊 <b>Statistika</b>\n", "<b>Ro'yxatdan o'tganlar:</b>"]
@@ -320,7 +317,8 @@ async def eksport(
 
 
 @router.callback_query(AdmCB.filter(F.action == "yangi"))
-async def yangi_arizalar(callback: CallbackQuery, session: AsyncSession) -> None:
+async def oxirgi_arizalar(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Oxirgi ro'yxatdan o'tganlar — soxta yoki dublikat arizalarni topib rad etish uchun."""
     await callback.answer()
     xabar = _msg(callback)
     if xabar is None:
@@ -328,30 +326,40 @@ async def yangi_arizalar(callback: CallbackQuery, session: AsyncSession) -> None
 
     user_ids = (
         await session.scalars(
-            select(Ariza.user_id).where(Ariza.holat == Holat.YANGI).distinct().limit(15)
+            select(Ariza.user_id)
+            .where(Ariza.holat != Holat.BEKOR_QILINGAN)
+            .group_by(Ariza.user_id)
+            .order_by(func.max(Ariza.created_at).desc())
+            .limit(OXIRGI_ARIZALAR_SONI)
         )
     ).all()
 
     if not user_ids:
-        await xabar.answer("✅ Ko'rib chiqilmagan ariza yo'q.")
+        await xabar.answer("Hozircha ariza yo'q.")
         return
 
+    await xabar.answer(
+        f"🆕 <b>Oxirgi {len(user_ids)} ta o'quvchi</b> — eng yangisi birinchi.\n\n"
+        "Arizalar avtomatik qabul qilinadi. Soxta yoki dublikat bo'lsa — ❌ bilan rad eting."
+    )
     for user_id in user_ids:
         user = await session.get(User, user_id)
         if user is None:
             continue
-        await xabar.answer(
-            await _user_kartasi(session, user), reply_markup=akb.user_amal_kb(user.id)
-        )
+        matn, markup = await _user_kartasi(session, user)
+        await xabar.answer(matn, reply_markup=markup)
 
 
-async def _user_kartasi(session: AsyncSession, user: User) -> str:
+async def _user_kartasi(
+    session: AsyncSession, user: User
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """O'quvchi haqida ma'lumot va arizalar holatiga mos tugmalar."""
     arizalar = await ariza_service.user_arizalari(session, user.id)
     fanlar = "\n".join(
         f"    • {_esc(a.fan.nomi)} — {HOLAT_NOMI[a.holat]} (<code>{_esc(a.ariza_raqami)}</code>)"
         for a in arizalar
     )
-    return (
+    matn = (
         f"👤 <b>{_esc(user.fish)}</b>\n"
         f"📱 {_esc(user.telefon)}\n"
         f"🏫 {_esc(user.maktab)}\n"
@@ -360,13 +368,22 @@ async def _user_kartasi(session: AsyncSession, user: User) -> str:
         f"🔗 {'@' + _esc(user.username) if user.username else 'username yo‘q'}\n"
         f"📚 <b>Arizalar:</b>\n{fanlar or '    —'}"
     )
+    markup = akb.user_amal_kb(
+        user.id,
+        rad_etish=any(a.holat in QATNASHUVCHI_HOLATLAR for a in arizalar),
+        qayta_qabul=any(a.holat == Holat.RAD_ETILGAN for a in arizalar),
+    )
+    return matn, markup
 
 
-# ---------------------------------------------------------------- tasdiq / rad
+# ---------------------------------------------------------------- rad etish / qayta qabul
+# Arizalar avtomatik qabul qilinadi. Admin soxta/dublikat arizani rad etadi,
+# xato bilan rad etilganini esa qaytarib qabul qiladi.
+# ("tasdiq_user" nomi eski xabarlardagi tugmalar ishlashda davom etishi uchun saqlangan.)
 
 
 @router.callback_query(AdmCB.filter(F.action == "tasdiq_user"))
-async def tasdiq_user(
+async def qayta_qabul(
     callback: CallbackQuery, callback_data: AdmCB, session: AsyncSession, bot: Bot
 ) -> None:
     user = await session.get(User, callback_data.value)
@@ -375,26 +392,32 @@ async def tasdiq_user(
         return
 
     arizalar = await ariza_service.user_arizalari(session, user.id)
-    ozgardi = [a for a in arizalar if a.holat == Holat.YANGI]
+    # YANGI — avtomatik qabuldan oldin ochilgan eski arizalar
+    ozgardi = [a for a in arizalar if a.holat in (Holat.RAD_ETILGAN, Holat.YANGI)]
+    if not ozgardi:
+        await callback.answer("Arizalari allaqachon qabul qilingan")
+        return
+
     for ariza in ozgardi:
         ariza.holat = Holat.TASDIQLANGAN
         ariza.admin_izohi = None
 
-    await callback.answer(f"{len(ozgardi)} ta ariza tasdiqlandi")
+    await callback.answer(f"{len(ozgardi)} ta ariza qabul qilindi")
     xabar = _msg(callback)
     if xabar is not None:
+        matn, markup = await _user_kartasi(session, user)
         await xabar.edit_text(
-            xabar.html_text + f"\n\n✅ <b>Tasdiqlandi</b> ({_esc(callback.from_user.full_name)})"
+            f"{matn}\n\n↩️ <b>Qayta qabul qilindi</b> ({_esc(callback.from_user.full_name)})",
+            reply_markup=markup,
         )
 
-    if ozgardi:
-        fanlar = ", ".join(a.fan.nomi for a in ozgardi)
-        await _foydalanuvchiga(
-            bot,
-            user,
-            f"✅ <b>Arizangiz tasdiqlandi!</b>\n\n📚 {_esc(fanlar)}\n\n"
-            "Olimpiada haqidagi ma'lumotlar shu bot orqali yuboriladi.",
-        )
+    fanlar = ", ".join(a.fan.nomi for a in ozgardi)
+    await _foydalanuvchiga(
+        bot,
+        user,
+        f"✅ <b>Arizangiz qabul qilindi!</b>\n\n📚 {_esc(fanlar)}\n\n"
+        "Olimpiada haqidagi ma'lumotlar shu bot orqali yuboriladi.",
+    )
 
 
 @router.callback_query(AdmCB.filter(F.action == "rad_user"))
@@ -426,12 +449,19 @@ async def rad_sabab_qabul(
 
     sabab = (message.text or "").strip()[:500]
     arizalar = await ariza_service.user_arizalari(session, user.id)
-    ozgardi = [a for a in arizalar if a.holat == Holat.YANGI]
+    ozgardi = [a for a in arizalar if a.holat in QATNASHUVCHI_HOLATLAR]
+    if not ozgardi:
+        await message.answer("Bu o'quvchida rad etiladigan ariza yo'q.")
+        return
+
     for ariza in ozgardi:
         ariza.holat = Holat.RAD_ETILGAN
         ariza.admin_izohi = sabab
 
-    await message.answer(f"❌ {len(ozgardi)} ta ariza rad etildi.")
+    await message.answer(
+        f"❌ {len(ozgardi)} ta ariza rad etildi.\n"
+        "Endi ular statistika va Excel'da hisobga olinmaydi."
+    )
     await _foydalanuvchiga(
         bot,
         user,
@@ -510,9 +540,8 @@ async def qidiruv_natija(
         return
 
     for user in users:
-        await message.answer(
-            await _user_kartasi(session, user), reply_markup=akb.user_amal_kb(user.id)
-        )
+        matn, markup = await _user_kartasi(session, user)
+        await message.answer(matn, reply_markup=markup)
 
 
 # ---------------------------------------------------------------- broadcast
@@ -828,15 +857,10 @@ async def admin_qoshish(
 # Ro'yxatdan o'tgan o'quvchiga yuboriladigan matn va manzil
 
 
-@router.callback_query(AdmCB.filter(F.action == "sozlamalar"))
-async def sozlamalar_menyusi(callback: CallbackQuery, session: AsyncSession) -> None:
-    await callback.answer()
-    xabar = _msg(callback)
-    if xabar is None:
-        return
-
+async def _sozlamalar_ekrani(session: AsyncSession) -> tuple[str, InlineKeyboardMarkup]:
     matn = await sozlama_service.yakun_matni(session)
     manzil = await sozlama_service.manzil(session)
+    hisobot = await sozlama_service.kunlik_hisobot_yoqilganmi(session)
 
     if manzil is None:
         manzil_holati = "— kiritilmagan"
@@ -844,14 +868,49 @@ async def sozlamalar_menyusi(callback: CallbackQuery, session: AsyncSession) -> 
         manzil_holati = f"📍 {_esc(manzil.nomi)}"
     else:
         manzil_holati = f"📍 {manzil.lat}, {manzil.lon}"
+    matn_holati = "✅ kiritilgan" if matn else "— kiritilmagan"
+    hisobot_holati = "✅ yoqilgan" if hisobot else "❌ o'chiq"
 
-    await xabar.edit_text(
+    return (
         "⚙️ <b>Sozlamalar</b>\n\n"
         "Bular ro'yxatdan o'tgan o'quvchiga avtomatik yuboriladi:\n\n"
-        f"📝 <b>Yakuniy matn:</b> {'✅ kiritilgan' if matn else '— kiritilmagan'}\n"
-        f"📍 <b>Manzil:</b> {manzil_holati}",
-        reply_markup=akb.sozlamalar_kb(),
+        f"📝 <b>Yakuniy matn:</b> {matn_holati}\n"
+        f"📍 <b>Manzil:</b> {manzil_holati}\n\n"
+        f"📊 <b>Kunlik hisobot</b> (har kuni {HISOBOT_SOATI}:00 da adminlarga): "
+        f"{hisobot_holati}",
+        akb.sozlamalar_kb(hisobot_yoqilgan=hisobot),
     )
+
+
+@router.callback_query(AdmCB.filter(F.action == "sozlamalar"))
+async def sozlamalar_menyusi(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    xabar = _msg(callback)
+    if xabar is None:
+        return
+    matn, markup = await _sozlamalar_ekrani(session)
+    await xabar.edit_text(matn, reply_markup=markup)
+
+
+@router.callback_query(AdmCB.filter(F.action == "hisobot_toggle"))
+async def hisobot_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    yoqildi = await sozlama_service.kunlik_hisobotni_almashtirish(session)
+    await callback.answer("Kunlik hisobot " + ("yoqildi ✅" if yoqildi else "o'chirildi"))
+    xabar = _msg(callback)
+    if xabar is None:
+        return
+    matn, markup = await _sozlamalar_ekrani(session)
+    await xabar.edit_text(matn, reply_markup=markup)
+
+
+@router.callback_query(AdmCB.filter(F.action == "hisobot_namuna"))
+async def hisobot_namuna(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Bugungi hisobot hozir qanday ko'rinishini ko'rsatadi (20:00 ni kutmasdan)."""
+    await callback.answer()
+    xabar = _msg(callback)
+    if xabar is None:
+        return
+    await xabar.answer(await hisobot_matni(session))
 
 
 @router.callback_query(AdmCB.filter(F.action == "yakun_matn"))

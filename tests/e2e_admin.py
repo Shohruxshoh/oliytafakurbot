@@ -1,8 +1,9 @@
 """Admin panel oqimini sinash.
 
 Qamrov: panel va rollar, davr statistikasi (kunlik/haftalik/oylik),
-har bir davr uchun Excel, arizalarni tasdiqlash/rad etish, qidiruv,
-broadcast, adminlarni boshqarish (ariza -> super admin tasdig'i).
+har bir davr uchun Excel, avtomatik qabul, rad etish / qayta qabul, qidiruv,
+broadcast, adminlarni boshqarish (ariza -> super admin tasdig'i),
+sozlamalar va kunlik hisobot.
 
 Ishga tushirish:  python tests/e2e_admin.py
 """
@@ -33,12 +34,13 @@ from sqlalchemy import select
 from bot.callbacks import AdmCB
 from bot.config import load_config
 from bot.db.base import create_engine, create_session_factory, init_db
-from bot.db.models import Admin, AdminHolat, AdminRol, Ariza, Holat, User
+from bot.db.models import Admin, AdminHolat, Ariza, Holat
 from bot.db.seed import seed
 from bot.handlers import admin, menu, registration
 from bot.middlewares.db import DbSessionMiddleware
 from bot.services import adminlar as admin_service
 from bot.services import arizalar as ariza_service
+from bot.services import hisobot
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from tests.mock_session import MockSession
@@ -201,26 +203,44 @@ async def main() -> None:
         tekshir(len(hujjatlar) == 1, f"{nomi} Excel yuborildi")
 
     # ---------------------------------------------------------------- arizalar
-    print("\n[5] Yangi arizalar va tasdiqlash")
-    await yubor(callback_update(AdmCB(action="yangi").pack()))
-    kartalar = [m for m in session_obj.matnlar() if "Arizalar:" in m]
-    tekshir(len(kartalar) == 2, f"2 ta o'quvchi kartasi ({len(kartalar)})")
-
-    await yubor(callback_update(AdmCB(action="tasdiq_user", value=oquvchi1_id).pack()))
+    print("\n[5] Oxirgi arizalar — avtomatik qabul qilingan")
     async with session_factory() as s:
-        holatlar = list(
-            (await s.scalars(select(Ariza.holat).where(Ariza.user_id == oquvchi1_id))).all()
+        holatlar = list((await s.scalars(select(Ariza.holat))).all())
+        tekshir(
+            len(holatlar) == 4 and all(h == Holat.TASDIQLANGAN for h in holatlar),
+            "4 ta ariza admin tasdig'isiz qabul qilingan",
         )
-        tekshir(all(h == Holat.TASDIQLANGAN for h in holatlar), "arizalar tasdiqlandi")
+
+    await yubor(callback_update(AdmCB(action="yangi").pack()))
     tekshir(
-        any("tasdiqlandi" in m.lower() for m in session_obj.matnlar()),
-        "o'quvchiga xabar yuborildi",
+        any("Oxirgi 2 ta o'quvchi" in m for m in session_obj.matnlar()),
+        "oxirgi arizalar ro'yxati ochildi",
+    )
+    kartalar = [
+        metod
+        for nom, metod in session_obj.calls
+        if nom == "SendMessage" and "Arizalar:" in (metod.text or "")
+    ]
+    tekshir(len(kartalar) == 2, f"2 ta o'quvchi kartasi ({len(kartalar)})")
+    tugmalar = [t.text for k in kartalar for qator in k.reply_markup.inline_keyboard for t in qator]
+    tekshir(
+        tugmalar.count("❌ Rad etish") == 2 and not any("Qayta qabul" in x for x in tugmalar),
+        "kartada faqat «Rad etish» (hamma ariza allaqachon qabul qilingan)",
     )
 
-    print("\n[6] Rad etish (sabab bilan)")
+    # Eski xabardagi «Tasdiqlash» tugmasi bosilsa — hech narsa o'zgarmaydi, o'quvchiga xabar ketmaydi
+    await yubor(callback_update(AdmCB(action="tasdiq_user", value=oquvchi1_id).pack()))
+    tekshir(session_obj.matnlar() == [], "qabul qilingan o'quvchiga qayta xabar yuborilmadi")
+
+    print("\n[6] Rad etish (sabab bilan) — statistika va Excel'dan chiqadi")
     await yubor(callback_update(AdmCB(action="rad_user", value=oquvchi2_id).pack()))
     tekshir("sabab" in session_obj.oxirgi_matn().lower(), "sabab so'raldi")
     await yubor(matn_update("Maktab nomi noto'g'ri ko'rsatilgan"))
+    tekshir("2 ta ariza rad etildi" in session_obj.matnlar()[0], "adminga natija aytildi")
+    tekshir(
+        any("rad etildi" in m and "Sabab" in m for m in session_obj.matnlar()),
+        "o'quvchiga sabab bilan xabar ketdi",
+    )
     async with session_factory() as s:
         arizalar = list(
             (await s.scalars(select(Ariza).where(Ariza.user_id == oquvchi2_id))).all()
@@ -230,6 +250,39 @@ async def main() -> None:
             all(a.admin_izohi == "Maktab nomi noto'g'ri ko'rsatilgan" for a in arizalar),
             "rad etish sababi saqlandi",
         )
+
+    await yubor(callback_update(AdmCB(action="stat").pack()))
+    tekshir(
+        "📦 Jami: <b>1</b> o'quvchi / 2 ariza" in session_obj.oxirgi_matn(),
+        "statistikada rad etilgan sanalmadi (2 -> 1 o'quvchi)",
+    )
+    await yubor(callback_update(AdmCB(action="eks_hammasi").pack()))
+    hujjat = next(m for nom, m in session_obj.calls if nom == "SendDocument")
+    tekshir("<b>2</b> ta ariza" in (hujjat.caption or ""), "Excel'ga faqat 2 ta ariza tushdi")
+
+    print("\n[6.1] Xato bilan rad etilganni qayta qabul qilish")
+    await yubor(callback_update(AdmCB(action="tasdiq_user", value=oquvchi2_id).pack()))
+    async with session_factory() as s:
+        arizalar = list(
+            (await s.scalars(select(Ariza).where(Ariza.user_id == oquvchi2_id))).all()
+        )
+        tekshir(
+            all(a.holat == Holat.TASDIQLANGAN and a.admin_izohi is None for a in arizalar),
+            "arizalar qayta qabul qilindi, rad sababi tozalandi",
+        )
+    tekshir(
+        any("qabul qilindi" in m.lower() for m in session_obj.matnlar()),
+        "o'quvchiga «qabul qilindi» xabari ketdi",
+    )
+    tekshir(
+        any("Qayta qabul qilindi" in m for m in session_obj.matnlar()),
+        "admin kartasi yangilandi",
+    )
+    await yubor(callback_update(AdmCB(action="stat").pack()))
+    tekshir(
+        "📦 Jami: <b>2</b> o'quvchi / 4 ariza" in session_obj.oxirgi_matn(),
+        "statistika qayta tiklandi",
+    )
 
     print("\n[7] Qidiruv va /bekor")
     await yubor(callback_update(AdmCB(action="qidiruv").pack()))
@@ -369,6 +422,41 @@ async def main() -> None:
             f"manzil saqlandi: {manzil}",
         )
     tekshir("SendVenue" in session_obj.metodlar(), "adminga manzil ko'rsatildi")
+
+    print("\n[12.1] Kunlik hisobot")
+    await yubor(callback_update(AdmCB(action="sozlamalar").pack()))
+    tekshir(
+        "Kunlik hisobot" in session_obj.oxirgi_matn() and "✅ yoqilgan" in session_obj.oxirgi_matn(),
+        "sozlamalarda hisobot holati ko'rinadi (yoqilgan)",
+    )
+
+    await yubor(callback_update(AdmCB(action="hisobot_namuna").pack()))
+    namuna = session_obj.oxirgi_matn()
+    tekshir(
+        "Kunlik hisobot" in namuna and "Jami: <b>2</b> o'quvchi / 4 ariza" in namuna,
+        "«Namuna» bugungi hisobotni darhol ko'rsatdi",
+    )
+
+    def adminga_hisobot_bordi() -> bool:
+        return any(
+            nom == "SendMessage"
+            and getattr(m, "chat_id", None) == SUPER_ID
+            and "Kunlik hisobot" in (m.text or "")
+            for nom, m in session_obj.calls
+        )
+
+    session_obj.tozalash()
+    yuborildi = await hisobot.hisobot_yuborish(bot, config, session_factory)
+    tekshir(yuborildi and adminga_hisobot_bordi(), "soat 20:00 dagi hisobot adminga yetib bordi")
+
+    await yubor(callback_update(AdmCB(action="hisobot_toggle").pack()))
+    tekshir("❌ o'chiq" in session_obj.oxirgi_matn(), "hisobot o'chirildi")
+    session_obj.tozalash()
+    yuborildi = await hisobot.hisobot_yuborish(bot, config, session_factory)
+    tekshir(not yuborildi and not adminga_hisobot_bordi(), "o'chirilganda hisobot yuborilmaydi")
+
+    await yubor(callback_update(AdmCB(action="hisobot_toggle").pack()))
+    tekshir("✅ yoqilgan" in session_obj.oxirgi_matn(), "hisobot qayta yoqildi")
 
     print("\n[13] Begona odam hech narsa qila olmaydi")
     await yubor(callback_update(AdmCB(action="stat").pack(), user_id=BEGONA_ID))

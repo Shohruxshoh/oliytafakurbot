@@ -8,8 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.models import Ariza, Fan, Holat, User
 from bot.utils.vaqt import hozir
 
-FAOL_HOLATLAR = (Holat.YANGI, Holat.TASDIQLANGAN, Holat.RAD_ETILGAN)
-
 
 async def faol_fanlar(session: AsyncSession) -> list[Fan]:
     natija = await session.scalars(
@@ -58,6 +56,8 @@ async def ariza_yaratish(
 ) -> list[Ariza]:
     """Tanlangan fanlar uchun ariza ochadi. Dublikat yaratmaydi.
 
+    Ariza darhol qabul qilinadi (TASDIQLANGAN) — admin tasdig'i kerak emas,
+    admin faqat soxta/dublikat arizalarni rad etadi.
     Agar avval bekor qilingan ariza bo'lsa — uni qayta faollashtiradi.
     """
     yil = hozir().strftime("%y")
@@ -76,14 +76,16 @@ async def ariza_yaratish(
         mavjud = mavjudlar.get(fan.id)
         if mavjud is not None:
             if mavjud.holat == Holat.BEKOR_QILINGAN:
-                mavjud.holat = Holat.YANGI
+                mavjud.holat = Holat.TASDIQLANGAN
                 mavjud.admin_izohi = None
                 yangi.append(mavjud)
             continue
 
         # fan= va user= darhol beriladi: aks holda keyin ariza.fan.nomi ga
         # murojaat qilinganda async kontekstda lazy-load xatosi chiqadi
-        ariza = Ariza(user_id=user.id, fan_id=fan.id, fan=fan, user=user, holat=Holat.YANGI)
+        ariza = Ariza(
+            user_id=user.id, fan_id=fan.id, fan=fan, user=user, holat=Holat.TASDIQLANGAN
+        )
         session.add(ariza)
         await session.flush()
         ariza.ariza_raqami = f"OT{yil}-{fan.kod}-{ariza.id:05d}"

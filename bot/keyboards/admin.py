@@ -23,7 +23,7 @@ def panel_kb(
 ) -> InlineKeyboardMarkup:
     qatorlar = [
         [_tugma("📊 Statistika", "stat"), _tugma("📥 Excel", "eksport")],
-        [_tugma("🆕 Yangi arizalar", "yangi"), _tugma("🔎 Qidiruv", "qidiruv")],
+        [_tugma("🆕 Oxirgi arizalar", "yangi"), _tugma("🔎 Qidiruv", "qidiruv")],
         [_tugma("⚙️ Sozlamalar", "sozlamalar")],
     ]
 
@@ -96,15 +96,20 @@ def eksport_kb() -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------- arizalar
 
 
-def user_amal_kb(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _tugma("✅ Tasdiqlash", "tasdiq_user", user_id),
-                _tugma("❌ Rad etish", "rad_user", user_id),
-            ]
-        ]
-    )
+def user_amal_kb(
+    user_id: int, *, rad_etish: bool, qayta_qabul: bool
+) -> InlineKeyboardMarkup | None:
+    """O'quvchi kartasi ostidagi tugmalar — arizalar holatiga qarab.
+
+    Arizalar avtomatik qabul qilinadi, shuning uchun asosiy amal — rad etish.
+    Xato bilan rad etilgan arizani qaytarib qabul qilish mumkin.
+    """
+    tugmalar = []
+    if rad_etish:
+        tugmalar.append(_tugma("❌ Rad etish", "rad_user", user_id))
+    if qayta_qabul:
+        tugmalar.append(_tugma("↩️ Qayta qabul qilish", "tasdiq_user", user_id))
+    return InlineKeyboardMarkup(inline_keyboard=[tugmalar]) if tugmalar else None
 
 
 def broadcast_tasdiq_kb() -> InlineKeyboardMarkup:
@@ -166,11 +171,13 @@ def admin_sorov_kb(admin_id: int) -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------- sozlamalar
 
 
-def sozlamalar_kb() -> InlineKeyboardMarkup:
+def sozlamalar_kb(*, hisobot_yoqilgan: bool) -> InlineKeyboardMarkup:
+    hisobot_matni = "📊 Kunlik hisobot: ✅ yoqilgan" if hisobot_yoqilgan else "📊 Kunlik hisobot: ❌ o'chiq"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_tugma("📝 Yakuniy matn", "yakun_matn")],
             [_tugma("📍 Manzil (lokatsiya)", "manzil")],
+            [_tugma(hisobot_matni, "hisobot_toggle"), _tugma("👁 Namuna", "hisobot_namuna")],
             _orqaga(),
         ]
     )

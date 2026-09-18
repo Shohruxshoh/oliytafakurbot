@@ -63,7 +63,7 @@ Bir o'quvchi bir nechta fanga yozilgani uchun ikkinchi jadval kerak.
 | `ariza_raqami` | text UNIQUE | `OT26-MAT-00123` |
 | `user_id` | FK → users | |
 | `fan_id` | FK → fanlar | |
-| `holat` | enum | `yangi` → `tasdiqlangan` / `rad_etilgan` / `bekor_qilingan` |
+| `holat` | enum | `tasdiqlangan` (avtomatik) → `rad_etilgan` (admin) ↔ qayta qabul; `bekor_qilingan` (o'quvchi o'zi) |
 | `admin_izohi` | text | Rad etish sababi — o'quvchiga yuboriladi |
 | `created_at` / `updated_at` | timestamp | |
 
@@ -95,6 +95,7 @@ Bir o'quvchi bir nechta fanga yozilgani uchun ikkinchi jadval kerak.
 | Kalit | Izoh |
 |---|---|
 | `registratsiya_ochiq` | Admin ro'yxatni ochadi/yopadi |
+| `kunlik_hisobot` | Adminlarga har kuni 20:00 da hisobot (`1` yoqilgan / `0` o'chiq) |
 | `yakun_matni` | Ro'yxatdan o'tgach yuboriladigan matn (qo'shimcha savollar uchun) |
 | `manzil_lat`, `manzil_lon` | Olimpiada o'tkaziladigan joy koordinatasi |
 | `manzil_nomi`, `manzil_izohi` | Joy nomi va manzili — venue sifatida ko'rsatiladi |
@@ -151,7 +152,8 @@ Har bir qadamda **⬅️ Orqaga** tugmasi va qadam indikatori (`3/7`).
 | **Statistika** | admin | Bugun / shu hafta / shu oy / jami + fan va sinf kesimlari |
 | **Kunlik / haftalik / oylik jadval** | admin | Oxirgi 14 kun, 8 hafta, 12 oy — diagramma bilan |
 | **Excel eksport** | admin | Har bir davr uchun alohida: bugun, shu hafta, shu oy, hammasi |
-| Arizalarni tasdiqlash / rad etish | admin | Rad etilganda sabab o'quvchiga yuboriladi |
+| Rad etish / qayta qabul qilish | admin | Arizalar avtomatik qabul qilinadi; admin faqat soxtasini rad etadi. Sabab o'quvchiga yuboriladi, rad etilgan statistika va Excel'ga kirmaydi |
+| **Kunlik hisobot** | admin | Har kuni 20:00 da barcha adminlarga; har bir ro'yxatdan o'tish haqida alohida xabar yo'q |
 | Qidiruv | admin | F.I.Sh. / telefon / maktab / ariza raqami bo'yicha |
 | **Sozlamalar** | admin | Yakuniy matn va manzil (lokatsiya) — o'quvchiga avtomatik yuboriladi |
 | **Broadcast** | super admin | Barcha foydalanuvchilarga |

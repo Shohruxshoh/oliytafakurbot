@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.models import Sozlama
 
 REGISTRATSIYA_OCHIQ = "registratsiya_ochiq"
+KUNLIK_HISOBOT = "kunlik_hisobot"
 YAKUN_MATNI = "yakun_matni"
 MANZIL_LAT = "manzil_lat"
 MANZIL_LON = "manzil_lon"
@@ -62,6 +63,20 @@ async def ochirish(session: AsyncSession, *kalitlar: str) -> None:
 
 async def registratsiya_ochiqmi(session: AsyncSession) -> bool:
     return await olish(session, REGISTRATSIYA_OCHIQ, "1") == "1"
+
+
+# ---------- adminlarga kunlik hisobot ----------
+
+
+async def kunlik_hisobot_yoqilganmi(session: AsyncSession) -> bool:
+    return await olish(session, KUNLIK_HISOBOT, "1") == "1"
+
+
+async def kunlik_hisobotni_almashtirish(session: AsyncSession) -> bool:
+    """Yoqilgan bo'lsa o'chiradi va aksincha. Yangi holatni qaytaradi."""
+    yangi = not await kunlik_hisobot_yoqilganmi(session)
+    await saqlash(session, KUNLIK_HISOBOT, "1" if yangi else "0")
+    return yangi
 
 
 # ---------- ro'yxatdan o'tgandan keyingi matn ----------

@@ -172,7 +172,7 @@ Har qadamda «⬅️ Orqaga» ishlaydi. Tasdiqlash ekranida istalgan maydonni ta
 | Rol | Kim | Nimaga ruxsat |
 |---|---|---|
 | 👑 **Super admin** | `.env` dagi `ADMIN_IDS` + super qilib ko'tarilganlar | Hammasi |
-| 👮 **Admin** | Super admin tasdiqlagan odamlar | Statistika, Excel, arizalarni tasdiqlash, qidiruv |
+| 👮 **Admin** | Super admin tasdiqlagan odamlar | Statistika, Excel, arizalarni rad etish, qidiruv, sozlamalar |
 
 `.env` dagi super adminlarni botdan o'chirib bo'lmaydi — bu «kalitni yo'qotib qo'yish»dan himoya.
 
@@ -197,13 +197,25 @@ Fayl nomi davr bilan belgilanadi: `arizalar_hafta_2026-09-12.xlsx`
 
 ### Arizalar bilan ishlash
 
+Arizalar **avtomatik qabul qilinadi** — o'quvchi darhol `✅ Qabul qilindi` ni ko'radi,
+admin hech narsani tasdiqlashi shart emas. Admin faqat soxta, dublikat yoki hazil
+arizalarni **rad etadi**. Rad etilgan ariza statistika va Excel'ga kirmaydi, sababi
+o'quvchiga yuboriladi. Xato bilan rad etilganini **↩️ Qayta qabul qilish** mumkin.
+
 | Tugma | Vazifasi |
 |---|---|
-| 🆕 Yangi arizalar | Ko'rib chiqilmaganlar + ✅/❌ tugmalari |
+| 🆕 Oxirgi arizalar | Oxirgi 10 ta o'quvchi — soxtasini ❌ bilan rad etish uchun |
 | 🔎 Qidiruv | F.I.Sh., telefon, maktab yoki ariza raqami bo'yicha |
-| ⚙️ Sozlamalar | Yakuniy matn va manzil (pastda) |
+| ⚙️ Sozlamalar | Yakuniy matn, manzil va kunlik hisobot (pastda) |
 | 📣 Xabar yuborish | Barcha foydalanuvchilarga (faqat super admin) |
 | 🔒 Registratsiya | Ro'yxatga olishni ochish/yopish (faqat super admin) |
+
+### 📊 Kunlik hisobot
+
+Har bir ro'yxatdan o'tish haqida alohida xabar kelmaydi. O'rniga **har kuni soat 20:00 da**
+barcha adminlarga bitta hisobot keladi: bugun nechta o'quvchi ro'yxatdan o'tdi, fanlar
+kesimida, va jami. ⚙️ Sozlamalar'da o'chirib qo'yish mumkin, **👁 Namuna** tugmasi esa
+bugungi hisobotni 20:00 ni kutmasdan ko'rsatadi.
 
 ### ⚙️ Sozlamalar — ro'yxat yakunida yuboriladigan narsalar
 
@@ -225,9 +237,6 @@ yuboring. Yoki koordinatani yozing:
 
 Nom yozilsa xaritada nomi bilan (venue) ko'rinadi, yozilmasa oddiy lokatsiya bo'ladi.
 Ikkalasi ham ixtiyoriy — kiritilmasa o'sha xabar yuborilmaydi. 🗑 tugmasi bilan o'chiriladi.
-
-Yangi ariza kelganda **barcha adminlarga** avtomatik xabar boradi.
-Rad etilganda sabab o'quvchiga yuboriladi.
 
 ### Yangi admin qo'shish
 

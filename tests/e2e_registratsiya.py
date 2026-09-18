@@ -234,7 +234,8 @@ async def main() -> None:
         )
         tekshir(len(arizalar) == 1, f"1 ta ariza yaratildi ({len(arizalar)})")
         tekshir(
-            all(a.holat == Holat.YANGI for a in arizalar), "arizalar 'yangi' holatida"
+            all(a.holat == Holat.TASDIQLANGAN for a in arizalar),
+            "ariza darhol qabul qilindi (admin tasdig'isiz)",
         )
         raqamlar = [a.ariza_raqami for a in arizalar]
         tekshir(all(r and r.startswith("OT") for r in raqamlar), f"raqamlar: {raqamlar}")
@@ -243,9 +244,12 @@ async def main() -> None:
     tekshir(
         any("Tabriklaymiz" in m for m in yuborilgan), "foydalanuvchiga tabrik yuborildi"
     )
+    admin_chat = config.admin_ids[0]
     tekshir(
-        any("Yangi ro'yxatdan o'tish" in m for m in yuborilgan),
-        "adminga xabar yuborildi",
+        not any(
+            getattr(metod, "chat_id", None) == admin_chat for _, metod in session_obj.calls
+        ),
+        "adminga alohida xabar yuborilmadi (kunlik hisobotda ko'rinadi)",
     )
 
     yakun = next((m for m in yuborilgan if "Tabriklaymiz" in m), "")
@@ -270,6 +274,8 @@ async def main() -> None:
     matn = session_obj.oxirgi_matn()
     tekshir("arizalaringiz" in matn.lower(), "arizalar ro'yxati chiqdi")
     tekshir(mat.nomi in matn, "tanlangan fan ro'yxatda")
+    tekshir("Qabul qilindi" in matn, "o'quvchi «✅ Qabul qilindi» holatini ko'radi")
+    tekshir("Ko'rib chiqilmoqda" not in matn, "«Ko'rib chiqilmoqda» yo'q")
 
     print("\n[12] Yana fan qo'shish")
     await yubor(matn_update("➕ Yana fan qo'shish"))
