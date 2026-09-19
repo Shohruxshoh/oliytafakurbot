@@ -71,7 +71,7 @@ def matn_update(matn: str) -> Update:
     )
 
 
-def kontakt_update(raqam: str) -> Update:
+def kontakt_update(raqam: str, egasi: int = TG_ID) -> Update:
     return Update(
         update_id=_yangi_id("update"),
         message=Message(
@@ -79,7 +79,7 @@ def kontakt_update(raqam: str) -> Update:
             date=datetime.now(),
             chat=CHAT,
             from_user=FOYDALANUVCHI,
-            contact=Contact(phone_number=raqam, first_name="Alisher", user_id=TG_ID),
+            contact=Contact(phone_number=raqam, first_name="Alisher", user_id=egasi),
         ),
     )
 
@@ -170,7 +170,16 @@ async def main() -> None:
     print("\n[5] Telefon — kontakt orqali")
     await yubor(matn_update("noto'g'ri raqam"))
     tekshir(await holat() == Reg.telefon.state, "noto'g'ri raqam qabul qilinmadi")
-    await yubor(kontakt_update("+998901234567"))
+    await yubor(kontakt_update("998901112233", egasi=777))
+    tekshir(
+        await holat() == Reg.telefon.state
+        and "boshqa odamning" in session_obj.oxirgi_matn(),
+        "boshqa odamning kontakti rad etildi",
+    )
+    # Regressiya: 87 kodli haqiqiy raqam «Raqam noto'g'ri» deb rad etilardi
+    # (operator kodlarining qo'lda yozilgan ro'yxatida 87 yo'q edi).
+    # Telegram o'z raqamini «+» siz yuboradi — shunday sinaymiz.
+    await yubor(kontakt_update("998871234567"))
     tekshir(await holat() == Reg.maktab.state, "maktab qadamiga o'tdi")
 
     print("\n[6] Maktab va sinf")
@@ -202,7 +211,7 @@ async def main() -> None:
     tekshir(await holat() == Reg.tasdiq.state, "tasdiqlash ekraniga o'tdi")
     xulosa = session_obj.oxirgi_matn()
     tekshir("Aliyev Alisher Akmalovich" in xulosa, "xulosada F.I.Sh. bor")
-    tekshir("+998901234567" in xulosa, "xulosada telefon bor")
+    tekshir("+998871234567" in xulosa, "xulosada telefon bor (+ qo'shilgan)")
     tekshir("5-sinf" in xulosa, "xulosada sinf bor")
     tekshir(mat.nomi in xulosa and ing.nomi not in xulosa, "xulosada faqat tanlangan fan")
 
@@ -225,7 +234,7 @@ async def main() -> None:
         tekshir(user is not None, "foydalanuvchi bazada")
         assert user is not None
         tekshir(user.fish == "Aliyev Alisher Akmalovich", f"F.I.Sh.: {user.fish}")
-        tekshir(user.telefon == "+998901234567", f"telefon: {user.telefon}")
+        tekshir(user.telefon == "+998871234567", f"telefon: {user.telefon}")
         tekshir(user.sinf == 7, f"sinf: {user.sinf}")
         tekshir(user.maktab == "Chilonzor tumani, 45-maktab", "maktab saqlandi")
 
@@ -254,7 +263,7 @@ async def main() -> None:
 
     yakun = next((m for m in yuborilgan if "Tabriklaymiz" in m), "")
     tekshir("Aliyev Alisher Akmalovich" in yakun, "yakuniy xabarda F.I.Sh.")
-    tekshir("+998901234567" in yakun, "yakuniy xabarda telefon")
+    tekshir("+998871234567" in yakun, "yakuniy xabarda telefon")
     tekshir("Chilonzor tumani, 45-maktab" in yakun, "yakuniy xabarda maktab")
     tekshir("7-sinf" in yakun, "yakuniy xabarda sinf")
     tekshir(mat.nomi in yakun and "OT" in yakun, "yakuniy xabarda fan va ariza raqami")
@@ -317,6 +326,29 @@ async def main() -> None:
     )
     await yubor(matn_update("/bekor"))
     tekshir(await holat() is None, "/bekor holatni tozaladi")
+
+    print("\n[15] Profilda telefonni kontakt orqali o'zgartirish")
+    await yubor(matn_update("✏️ Ma'lumotlarimni tahrirlash"))
+    await yubor(callback_update(TahrirCB(maydon="maktab").pack()))
+    await yubor(kontakt_update("998331234567"))
+    tekshir(
+        "matn ko'rinishida" in session_obj.oxirgi_matn(),
+        "maktabni tahrirlayotganda yuborilgan kontakt rad etildi",
+    )
+    async with session_factory() as s:
+        u = await s.scalar(select(User).where(User.telegram_id == TG_ID))
+        tekshir(u is not None and u.telefon == "+998871234567", "telefon ustiga yozilmadi")
+    await yubor(matn_update("/bekor"))
+
+    await yubor(matn_update("✏️ Ma'lumotlarimni tahrirlash"))
+    await yubor(callback_update(TahrirCB(maydon="telefon").pack()))
+    await yubor(kontakt_update("998871112233"))
+    async with session_factory() as s:
+        u = await s.scalar(select(User).where(User.telegram_id == TG_ID))
+        tekshir(
+            u is not None and u.telefon == "+998871112233",
+            "87 kodli yangi raqam kontakt orqali saqlandi",
+        )
 
     await bot.session.close()
     await engine.dispose()

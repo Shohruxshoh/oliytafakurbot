@@ -20,7 +20,12 @@ from bot.services import arizalar as ariza_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from bot.states import Tahrir, YangiFan
-from bot.utils.validators import normalize_ism, normalize_maktab, normalize_telefon
+from bot.utils.validators import (
+    normalize_ism,
+    normalize_kontakt,
+    normalize_maktab,
+    normalize_telefon,
+)
 from bot.utils.yakunlash import yakuniy_malumot
 
 router = Router(name="menu")
@@ -320,7 +325,23 @@ async def tahrir_kontakt(
     kontakt = message.contact
     if kontakt is None:
         return
-    raqam = normalize_telefon(kontakt.phone_number)
+
+    # Kontakt faqat telefonni tahrirlashda qabul qilinadi — aks holda masalan
+    # maktab nomini tahrirlayotganda yuborilgan kontakt telefon ustiga yozilib ketardi
+    maydon = (await state.get_data()).get("maydon")
+    if maydon != "telefon":
+        await message.answer(t.XATO_TUGMA if maydon == "sinf" else t.XATO_MATN)
+        return
+
+    if kontakt.user_id is not None and kontakt.user_id != message.from_user.id:
+        await message.answer(t.XATO_BEGONA_KONTAKT)
+        return
+
+    # O'z raqami — Telegram tasdiqlagan; telefon kitobidagi kontakt — oddiy tekshiruv
+    if kontakt.user_id == message.from_user.id:
+        raqam = normalize_kontakt(kontakt.phone_number)
+    else:
+        raqam = normalize_telefon(kontakt.phone_number)
     if raqam is None:
         await message.answer(t.XATO_TELEFON)
         return

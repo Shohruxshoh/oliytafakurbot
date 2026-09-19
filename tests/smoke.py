@@ -41,7 +41,12 @@ from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from bot.services.export import arizalar_excel
 from bot.utils import vaqt
-from bot.utils.validators import normalize_ism, normalize_maktab, normalize_telefon
+from bot.utils.validators import (
+    normalize_ism,
+    normalize_kontakt,
+    normalize_maktab,
+    normalize_telefon,
+)
 
 xatolar: list[str] = []
 
@@ -67,8 +72,19 @@ async def main() -> None:
     tekshir(normalize_telefon("+998 90 123 45 67") == "+998901234567", "telefon probel bilan")
     tekshir(normalize_telefon("901234567") == "+998901234567", "telefon 9 xonali")
     tekshir(normalize_telefon("998331234567") == "+998331234567", "telefon 998 bilan")
-    tekshir(normalize_telefon("+7 900 1234567") is None, "chet el raqami rad etiladi")
-    tekshir(normalize_telefon("+998121234567") is None, "noto'g'ri operator kodi rad etiladi")
+    # Operator kodlari tekshirilmaydi — yangi kodlar qo'shilib turadi (87 kodi rad etilgan edi)
+    tekshir(normalize_telefon("+998 87 123 45 67") == "+998871234567", "87 kodi qabul qilinadi")
+    tekshir(normalize_telefon("998201234567") == "+998201234567", "20 kodi qabul qilinadi")
+    tekshir(normalize_telefon("+99890123456") is None, "bitta raqam tushib qolsa rad etiladi")
+    tekshir(normalize_telefon("9989012345678") is None, "ortiqcha raqam bo'lsa rad etiladi")
+    tekshir(
+        normalize_telefon("+7 900 123 45 67") == "+79001234567",
+        "chet el raqami «+» bilan yozilsa qabul qilinadi",
+    )
+    tekshir(normalize_telefon("79001234567") is None, "«+» siz chet el raqami rad etiladi (noaniq)")
+    tekshir(normalize_kontakt("998871234567") == "+998871234567", "kontakt: Telegram «+» siz yuboradi")
+    tekshir(normalize_kontakt("+79001234567") == "+79001234567", "kontakt: chet el raqami qabul qilinadi")
+    tekshir(normalize_kontakt("123") is None, "kontakt: buzuq raqam rad etiladi")
     tekshir(normalize_maktab("45-maktab") == "45-maktab", "maktab")
     tekshir(normalize_maktab("ab") is None, "qisqa maktab rad etiladi")
 

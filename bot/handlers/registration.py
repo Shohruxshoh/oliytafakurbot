@@ -28,7 +28,12 @@ from bot.services import arizalar as ariza_service
 from bot.services import sozlamalar as sozlama_service
 from bot.services import users as user_service
 from bot.states import Reg
-from bot.utils.validators import normalize_ism, normalize_maktab, normalize_telefon
+from bot.utils.validators import (
+    normalize_ism,
+    normalize_kontakt,
+    normalize_maktab,
+    normalize_telefon,
+)
 from bot.utils.yakunlash import yakuniy_malumot
 
 router = Router(name="registration")
@@ -265,7 +270,12 @@ async def telefon_kontakt(
         await message.answer(t.XATO_BEGONA_KONTAKT)
         return
 
-    raqam = normalize_telefon(kontakt.phone_number)
+    # O'z raqami — Telegram SMS bilan tasdiqlagan, faqat formatlanadi.
+    # Telefon kitobidagi (Telegram'da yo'q odam) kontakt qo'lda yozilgandek tekshiriladi.
+    if kontakt.user_id == message.from_user.id:
+        raqam = normalize_kontakt(kontakt.phone_number)
+    else:
+        raqam = normalize_telefon(kontakt.phone_number)
     if raqam is None:
         await message.answer(t.XATO_TELEFON)
         return
